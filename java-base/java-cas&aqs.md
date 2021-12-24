@@ -341,4 +341,4 @@ public abstract class AbstractQueuedSynchronizer
 
 高并发集合问题主要为第三代线程安全集合类，位于 java.util.concurrent.* 下，
 ConcurrentHashMap等，
-主要是CAS和AQS。
+底层是CAS和AQS。

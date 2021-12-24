@@ -3,7 +3,7 @@
 ### java基础
 1. **[Java面向对象特征](java-base/object-oriented-features.md)**
 2. **[ArrayList和LinkedList区别](java-base/arrayList-linkedList.md)**
-3. **[Java并发](java-base/java-concurrent.md)**
+3. **[Java锁机制、CAS、AQS](java-base/java-cas&aqs.md)**
 4. **[Java8新特性--Lambda学习！](java-base/java8-new-features.md)**
 
 ### redis

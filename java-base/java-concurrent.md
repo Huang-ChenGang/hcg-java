@@ -84,17 +84,25 @@ public abstract class AbstractQueuedSynchronizer
         /** Marker to indicate a node is waiting in exclusive mode */
         static final Node EXCLUSIVE = null;
     
-        /** waitStatus value to indicate thread has cancelled. */
-        /** 当前节点获取锁的请求已经被取消了 */
+        /**
+         * waitStatus value to indicate thread has cancelled.
+         * 当前节点获取锁的请求已经被取消了
+         */
         static final int CANCELLED =  1;
-        /** waitStatus value to indicate successor's thread needs unparking. */
-        /** 当前节点之后的线程需要被唤醒 */
+        /**
+         * waitStatus value to indicate successor's thread needs unparking.
+         * 当前节点之后的线程需要被唤醒
+         */
         static final int SIGNAL    = -1;
-        /** waitStatus value to indicate thread is waiting on condition. */
-        /** 当前节点正在等待某一个condition对象，和条件模式相关 */
+        /**
+         * waitStatus value to indicate thread is waiting on condition.
+         * 当前节点正在等待某一个condition对象，和条件模式相关
+         */
         static final int CONDITION = -2;
-        /** waitStatus value to indicate the next acquireShared should unconditionally propagate. */
-        /** 传递共享模式下锁释放状态，和共享模式相关 */
+        /**
+         * waitStatus value to indicate the next acquireShared should unconditionally propagate.
+         * 传递共享模式下锁释放状态，和共享模式相关
+         */
         static final int PROPAGATE = -3;
         
         /** 当前节点的线程在队列里的等待状态
@@ -137,6 +145,10 @@ public abstract class AbstractQueuedSynchronizer
     public final void acquire(int arg) {
         if (!tryAcquire(arg) &&
             acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
+            /*
+             * 如果acquireQueued返回true，表明线程在挂起的过程中有外部中断请求
+             * 因为线程在挂起的过程中无法响应外部的中断请求，之后改变状态，所以这里自己中断一下
+             */
             selfInterrupt();
     }
 
@@ -191,6 +203,7 @@ public abstract class AbstractQueuedSynchronizer
                  * 这样就保证head节点之后只有一个在通过CAS获取锁。队列里边其他线程都已被挂起或正在被挂起，最大限度的避免无用的自旋消耗CPU
                  */
                 if (shouldParkAfterFailedAcquire(p, node))
+                    // 当线程被挂起的过程中有外部中断请求的话，这里会返回true
                     interrupted |= parkAndCheckInterrupt();
             }
         } catch (Throwable t) {
@@ -242,9 +255,19 @@ public abstract class AbstractQueuedSynchronizer
      * 挂起线程
      */
     private final boolean parkAndCheckInterrupt() {
-        // 调用操作系统原语来将当前线程挂起，挂起后线程是停在这里的，不会往下执行
+        /*
+         * 调用操作系统原语来将当前线程挂起，挂起后线程是停在这里的，不会往下执行
+         *
+         * 因为调用操作系统原语来挂起当前线程，
+         * 所以挂起之后如果有其他地方调用了当前线程的interrupt()方法，是不会抛出异常的，只会改变当前线程内部的终端状态值
+         * 简单来说就是当线程处于等待队列中时无法响应外部的中断请求
+         */
         LockSupport.park(this);
-        // 挂起的线程被唤醒后从这里开始继续执行，因为之前是调用操作系统原语挂起的线程，所以这里不会抛出异常
+
+        /*
+         * 挂起的线程被唤醒后从这里开始继续执行
+         * 当线程在挂起的过程中有外部终端请求的话这里会返回true
+         */
         return Thread.interrupted();
     }
 

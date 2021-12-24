@@ -16,7 +16,7 @@ Java对象构成：对象头、实例对象、填充字节。
     MarkWord：存储和当前对象运行时有关的数据，包含HashCode、分代年龄、锁标志等。
     ClassPointer：是一个指针，指向当前对象类型指向方法区中的类型数据。
 2. 实例对象
-3. 填充字节：保证每个Java对象大小是8Byte的倍数，无用字节。
+3. 填充字节：保证每个Java对象大小是8bit(1Byte)的倍数，无用字节。
 
 synchronized关键字原理（优化前）：synchronized会编译成monitorenter和monitorexit两个字节码命令。
 资源被monitorenter之后不可被其他线程获取，monitorexit之后才能被其他线程获取。

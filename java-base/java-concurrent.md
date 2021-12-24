@@ -56,46 +56,28 @@ AQS主要是用state和FIFO(先进先出)的队列来管理多线程的同步状
 
 AbstractQueuedSynchronizer.java 源码解析。
 
+成员变量：
 ```java
 public abstract class AbstractQueuedSynchronizer
     extends AbstractOwnableSynchronizer
     implements java.io.Serializable {
+    
+    /*
+     * 共享变量，使用volatile修饰保证线程可见性
+     * 表示当前竞争资源对象的线程数量。
+     * 使用int就是因为有独占和共享两种资源共享方式，当是共享的时候，占用资源的线程数量是有多个的。
+     */
+    private volatile int state;
 
-    private volatile int state;//共享变量，使用volatile修饰保证线程可见性
-
-}
-```
-state，表示当前竞争资源对象的线程数量。
-使用int就是因为有独占和共享两种资源共享方式，当是共享的时候，占用资源的线程数量是有多个的。
-
-```java
-public abstract class AbstractQueuedSynchronizer
-    extends AbstractOwnableSynchronizer
-    implements java.io.Serializable {
-
+    // 当前等待队列的链表头
     private transient volatile Node head;
 
-}
-```
-当前等待队列的链表头。
-
-```java
-public abstract class AbstractQueuedSynchronizer
-    extends AbstractOwnableSynchronizer
-    implements java.io.Serializable {
-
+    // 当前等待队列的链表尾
     private transient volatile Node tail;
 
-}
-```
-当前等待队列的链表尾。
-
-队列中的节点，Node类：
-```java
-public abstract class AbstractQueuedSynchronizer
-    extends AbstractOwnableSynchronizer
-    implements java.io.Serializable {
-
+    /**
+     * 队列中的节点，Node类
+     */
     static final class Node {
         /** Marker to indicate a node is waiting in shared mode */
         static final Node SHARED = new Node();
@@ -131,16 +113,14 @@ public abstract class AbstractQueuedSynchronizer
 }
 ```
 
-tryAcquire方法：尝试获取锁(修改标记位)，无论有没有成功，都会立即返回。
-acquire方法：获取锁(修改标记位)，如果没有成功就进入队列等待，直到成功获取。
-
-tryAcquire方法：
+获取锁的方法：
 ```java
 public abstract class AbstractQueuedSynchronizer
     extends AbstractOwnableSynchronizer
     implements java.io.Serializable {
 
     /**
+     * 尝试获取锁(修改标记位)，无论有没有成功，都会立即返回
      * protected修饰：需要被继承
      * 参数arg：代表对state的修改
      * 返回值：代表是否成功获得锁
@@ -150,16 +130,8 @@ public abstract class AbstractQueuedSynchronizer
         throw new UnsupportedOperationException();
     }
 
-}
-```
-
-acquire方法：
-```java
-public abstract class AbstractQueuedSynchronizer
-    extends AbstractOwnableSynchronizer
-    implements java.io.Serializable {
-
     /**
+     * 获取锁(修改标记位)，如果没有成功就进入队列等待，直到成功获取
      * 修饰符：public final，不允许继承类Override
      */
     public final void acquire(int arg) {
@@ -167,15 +139,6 @@ public abstract class AbstractQueuedSynchronizer
             acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
             selfInterrupt();
     }
-
-}
-```
-
-addWaiter方法：
-```java
-public abstract class AbstractQueuedSynchronizer
-    extends AbstractOwnableSynchronizer
-    implements java.io.Serializable {
 
     /**
      * Creates and enqueues node for current thread and given mode.
@@ -202,19 +165,12 @@ public abstract class AbstractQueuedSynchronizer
         }
     }
 
-}
-```
-
-acquireQueued方法：
-```java
-public abstract class AbstractQueuedSynchronizer
-    extends AbstractOwnableSynchronizer
-    implements java.io.Serializable {
-
     /**
      * 方法整体流程：
      * 如果当前节点是头结点的后面一个，那么将会不断的去尝试拿锁，直到拿锁成功。
      * 否则进行判断是否需要挂起(也就是说，整个队列里只有一个线程是不断尝试拿锁的，其他线程都被挂起)。
+     *
+     * 这个方法主要是对线程进行挂起
      */
     final boolean acquireQueued(final Node node, int arg) {
         boolean interrupted = false;
@@ -229,7 +185,7 @@ public abstract class AbstractQueuedSynchronizer
                     return interrupted;
                 }
 
-                /**
+                /*
                  * 判断是否需要挂起
                  * 判断条件：当前节点之前除了head还有其他节点，并且前一个节点的状态是SIGNAL(-1)，则当前节点的线程需要挂起。
                  * 这样就保证head节点之后只有一个在通过CAS获取锁。队列里边其他线程都已被挂起或正在被挂起，最大限度的避免无用的自旋消耗CPU
@@ -243,6 +199,118 @@ public abstract class AbstractQueuedSynchronizer
                 selfInterrupt();
             throw t;
         }
+    }
+    
+    /**
+     * 如果这个方法返回true，则表明当前节点需要被挂起
+     */
+    private static boolean shouldParkAfterFailedAcquire(Node pred, Node node) {
+        int ws = pred.waitStatus;
+        
+        // 当前节点的前置节点waitStatus为SIGNAL，说明前置节点在等待获取锁，当前节点可以挂起
+        if (ws == Node.SIGNAL)
+            /*
+             * This node has already set status asking a release
+             * to signal it, so it can safely park.
+             */
+            return true;
+        if (ws > 0) {
+            /*
+             * Predecessor was cancelled. Skip over predecessors and
+             * indicate retry.
+             */
+            // 当前节点的前置节点waitStatus > 0，只可能为CANCELLED，所以直接删除前置节点
+            do {
+                node.prev = pred = pred.prev;
+            } while (pred.waitStatus > 0);
+            pred.next = node;
+        } else {
+            /*
+             * waitStatus must be 0 or PROPAGATE.  Indicate that we
+             * need a signal, but don't park yet.  Caller will need to
+             * retry to make sure it cannot acquire before parking.
+             */
+            // 前置节点为其他状态，既然当前节点已经压入，那前置节点就应该做好准备竞争锁，所以waitStatus置为SIGNAL
+            pred.compareAndSetWaitStatus(ws, Node.SIGNAL);
+        }
+    
+        // 后两种情况返回false，进行下一轮的判断
+        return false;
+    }
+
+    /*
+     * 挂起线程
+     */
+    private final boolean parkAndCheckInterrupt() {
+        // 调用操作系统原语来将当前线程挂起，挂起后线程是停在这里的，不会往下执行
+        LockSupport.park(this);
+        // 挂起的线程被唤醒后从这里开始继续执行，因为之前是调用操作系统原语挂起的线程，所以这里不会抛出异常
+        return Thread.interrupted();
+    }
+
+}
+```
+
+队列里只有一个线程在竞争锁，其他线程都被挂起。
+被挂起的线程会在一个线程使用完了共享资源，将要释放锁的时候被唤醒。
+
+释放锁的方法：
+```java
+public abstract class AbstractQueuedSynchronizer
+    extends AbstractOwnableSynchronizer
+    implements java.io.Serializable {
+
+    /**
+     * 给继承类去实现
+     */
+    protected boolean tryRelease(int arg) {
+        throw new UnsupportedOperationException();
+    }
+    
+    /**
+     * 释放锁
+     * 假如尝试释放锁成功，下一步就去唤醒等待队列里的其他节点
+     */
+    public final boolean release(int arg) {
+        if (tryRelease(arg)) {
+            Node h = head;
+            if (h != null && h.waitStatus != 0)
+                unparkSuccessor(h);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 唤醒下一个节点
+     * 如果下一个节点存在则唤醒下一个节点，如果不存在则从尾部开始唤醒第一个
+     */
+    private void unparkSuccessor(Node node) {
+        /*
+         * If status is negative (i.e., possibly needing signal) try
+         * to clear in anticipation of signalling.  It is OK if this
+         * fails or if status is changed by waiting thread.
+         */
+        int ws = node.waitStatus;
+        if (ws < 0)
+            node.compareAndSetWaitStatus(ws, 0);
+
+        /*
+         * Thread to unpark is held in successor, which is normally
+         * just the next node.  But if cancelled or apparently null,
+         * traverse backwards from tail to find the actual
+         * non-cancelled successor.
+         */
+        Node s = node.next;
+        if (s == null || s.waitStatus > 0) {
+            s = null;
+            for (Node p = tail; p != node && p != null; p = p.prev)
+                if (p.waitStatus <= 0)
+                    s = p;
+        }
+        if (s != null)
+            // 调用操作系统原语唤醒线程
+            LockSupport.unpark(s.thread);
     }
 
 }

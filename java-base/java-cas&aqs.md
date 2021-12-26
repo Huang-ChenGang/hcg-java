@@ -46,15 +46,16 @@ CAS在操作系统中通过一条指令来实现，所以能够保证原子性�
 减少了之前重量级锁的内核态和用户态切换的消耗，提高了性能。
 
 ### AQS
-AQS: Abstract Queued Synchronizer，抽象队列同步器。
+AQS: Abstract Queued Synchronizer，抽象队列同步器，AbstractQueuedSynchronizer.java。
+
+AQS是构建Java同步组件的基础，我们期待它能够成为实现大部分同步需求的基础。
+AQS的设计模式采用的模板方法模式，子类通过继承的方式，实现它的抽象方法来管理同步状态，
+对于子类而言它并没有太多的活要做，AQS提供了大量的模板方法来实现同步，
+主要是分为三类：独占式获取和释放同步状态、共享式获取和释放同步状态、查询同步队列中的等待线程情况。
+自定义子类使用AQS提供的模板方法就可以实现自己的同步语义。
+
 AQS 定义两种资源共享方式：独占和共享。
-Exclusive（独占）：只有一个线程可以使用资源，如 ReentrantLock。
-Share（共享）：多个线程可以共享资源，如Semaphore、CountDownLatCh、CyclicBarrier、ReadWriteLock。
-独占和共享在表现的意义上不一样，但是在底层的处理逻辑上没有太大的差别。
-
 AQS主要是用state和FIFO(先进先出)的队列来管理多线程的同步状态。
-
-AbstractQueuedSynchronizer.java 源码解析。
 
 成员变量：
 ```java
@@ -79,29 +80,31 @@ public abstract class AbstractQueuedSynchronizer
      * 队列中的节点，Node类
      */
     static final class Node {
-        /** Marker to indicate a node is waiting in shared mode */
+        // 共享
         static final Node SHARED = new Node();
-        /** Marker to indicate a node is waiting in exclusive mode */
+        // 独占
         static final Node EXCLUSIVE = null;
     
         /**
-         * waitStatus value to indicate thread has cancelled.
-         * 当前节点获取锁的请求已经被取消了
+         * 当前节点获取锁的请求处于取消状态
+         * 因为超时或者中断，节点会被设置为取消状态
+         * 被取消的节点是不会参与到竞争中的，他会一直保持取消状态不会转变为其他状态
          */
         static final int CANCELLED =  1;
         /**
-         * waitStatus value to indicate successor's thread needs unparking.
-         * 当前节点之后的线程需要被唤醒
+         * 当前节点拥有锁或处于竞争锁的状态
+         * 当前节点之后的后继节点的线程处于等待状态
+         * 而当前节点的线程如果释放了同步状态或者被取消，将会通知后继节点，使后继节点的线程得以运行
          */
         static final int SIGNAL    = -1;
         /**
-         * waitStatus value to indicate thread is waiting on condition.
-         * 当前节点正在等待某一个condition对象，和条件模式相关
+         * 当前节点在等待队列中，节点线程等待在Condition上
+         * 当其他线程对Condition调用了signal()后，改节点将会从等待队列中转移到同步队列中，加入到同步状态的获取中
          */
         static final int CONDITION = -2;
         /**
-         * waitStatus value to indicate the next acquireShared should unconditionally propagate.
          * 传递共享模式下锁释放状态，和共享模式相关
+         * 表示下一次共享式同步状态获取将会无条件地传播下去
          */
         static final int PROPAGATE = -3;
         
@@ -121,7 +124,11 @@ public abstract class AbstractQueuedSynchronizer
 }
 ```
 
-获取锁的方法：
+独占式(Exclusive)：只有一个线程可以使用资源，如 ReentrantLock。
+队列里只有一个线程在竞争锁，其他线程都被挂起。
+被挂起的线程会在一个线程使用完了共享资源，将要释放锁的时候被唤醒。
+
+独占方式代码分析：
 ```java
 public abstract class AbstractQueuedSynchronizer
     extends AbstractOwnableSynchronizer
@@ -132,6 +139,8 @@ public abstract class AbstractQueuedSynchronizer
      * protected修饰：需要被继承
      * 参数arg：代表对state的修改
      * 返回值：代表是否成功获得锁
+     *
+     * 该方法必须要保证线程安全的获取同步状态
      */
     protected boolean tryAcquire(int arg) {
         // 直接抛出异常，需要继承类Override这个tryAcquire方法
@@ -139,8 +148,23 @@ public abstract class AbstractQueuedSynchronizer
     }
 
     /**
+     * tryAcquire的增强版方法，添加超时控制，并且响应中断
+     * 如果当前线程没有在指定时间内获取同步状态，则会返回false，否则返回true
+     * 时间单位为纳秒
+     */
+    public final boolean tryAcquireNanos(int arg, long nanosTimeout)
+            throws InterruptedException {
+        if (Thread.interrupted())
+            throw new InterruptedException();
+        return tryAcquire(arg) ||
+            doAcquireNanos(arg, nanosTimeout);
+    }
+
+    /**
      * 获取锁(修改标记位)，如果没有成功就进入队列等待，直到成功获取
      * 修饰符：public final，不允许继承类Override
+     *
+     * 该方法不响应中断
      */
     public final void acquire(int arg) {
         if (!tryAcquire(arg) &&
@@ -150,6 +174,21 @@ public abstract class AbstractQueuedSynchronizer
              * 因为线程在挂起的过程中无法响应外部的中断请求，之后改变状态，所以这里自己中断一下
              */
             selfInterrupt();
+    }
+
+    /**
+     * 同acquire方法，但是会响应中断
+     * 获取锁(修改标记位)，如果没有成功就进入队列等待，直到成功获取
+     * 修饰符：public final，不允许继承类Override
+     *
+     * 如果当前线程被中断，会直接抛出InterruptedException
+     */
+    public final void acquireInterruptibly(int arg)
+            throws InterruptedException {
+        if (Thread.interrupted())
+            throw new InterruptedException();
+        if (!tryAcquire(arg))
+            doAcquireInterruptibly(arg);
     }
 
     /**
@@ -182,7 +221,7 @@ public abstract class AbstractQueuedSynchronizer
      * 如果当前节点是头结点的后面一个，那么将会不断的去尝试拿锁，直到拿锁成功。
      * 否则进行判断是否需要挂起(也就是说，整个队列里只有一个线程是不断尝试拿锁的，其他线程都被挂起)。
      *
-     * 这个方法主要是对线程进行挂起
+     * 这个方法主要是对线程进行挂起，不响应中断
      */
     final boolean acquireQueued(final Node node, int arg) {
         boolean interrupted = false;
@@ -213,6 +252,77 @@ public abstract class AbstractQueuedSynchronizer
             throw t;
         }
     }
+
+    /**
+     * 同acquireQueued，方法整体流程：
+     * 如果当前节点是头结点的后面一个，那么将会不断的去尝试拿锁，直到拿锁成功。
+     * 否则进行判断是否需要挂起(也就是说，整个队列里只有一个线程是不断尝试拿锁的，其他线程都被挂起)。
+     *
+     * 这个方法主要是对线程进行挂起，如果当前线程被中断，直接抛出InterruptedException
+     */
+    private void doAcquireInterruptibly(int arg)
+        throws InterruptedException {
+        final Node node = addWaiter(Node.EXCLUSIVE);
+        try {
+            for (;;) {
+                final Node p = node.predecessor();
+                if (p == head && tryAcquire(arg)) {
+                    setHead(node);
+                    p.next = null; // help GC
+                    return;
+                }
+                if (shouldParkAfterFailedAcquire(p, node) &&
+                    parkAndCheckInterrupt())
+                    // 响应中断，不再使用interrupted标记是否被中断过，而是直接抛出InterruptedException
+                    throw new InterruptedException();
+            }
+        } catch (Throwable t) {
+            cancelAcquire(node);
+            throw t;
+        }
+    }
+    
+    /**
+     * 同acquireQueued，添加超时控制
+     * 程序首先记录唤醒时间deadline ，deadline = System.nanoTime() + nanosTimeout（时间间隔）
+     * 如果获取同步状态失败，则需要计算出需要休眠的时间间隔nanosTimeout（= deadline - System.nanoTime()）
+     * 如果nanosTimeout <= 0 表示已经超时了，返回false
+     * 如果大于spinForTimeoutThreshold（1000L）则需要休眠nanosTimeout
+     * 如果nanosTimeout <= spinForTimeoutThreshold ，就不需要休眠了，直接进入快速自旋的过程。
+     * 原因在于 spinForTimeoutThreshold 已经非常小了，非常短的时间等待无法做到十分精确，
+     * 如果这时再次进行超时等待，相反会让nanosTimeout 的超时从整体上面表现得不是那么精确，
+     * 所以在超时非常短的场景中，AQS会进行无条件的快速自旋。
+     */
+    private boolean doAcquireNanos(int arg, long nanosTimeout)
+            throws InterruptedException {
+        if (nanosTimeout <= 0L)
+            return false;
+        final long deadline = System.nanoTime() + nanosTimeout;
+        final Node node = addWaiter(Node.EXCLUSIVE);
+        try {
+            for (;;) {
+                final Node p = node.predecessor();
+                if (p == head && tryAcquire(arg)) {
+                    setHead(node);
+                    p.next = null; // help GC
+                    return true;
+                }
+                nanosTimeout = deadline - System.nanoTime();
+                if (nanosTimeout <= 0L) {
+                    cancelAcquire(node);
+                    return false;
+                }
+                if (shouldParkAfterFailedAcquire(p, node) &&
+                    nanosTimeout > SPIN_FOR_TIMEOUT_THRESHOLD)
+                    LockSupport.parkNanos(this, nanosTimeout);
+                if (Thread.interrupted())
+                    throw new InterruptedException();
+            }
+        } catch (Throwable t) {
+            cancelAcquire(node);
+            throw t;
+        }
+    }
     
     /**
      * 如果这个方法返回true，则表明当前节点需要被挂起
@@ -222,16 +332,8 @@ public abstract class AbstractQueuedSynchronizer
         
         // 当前节点的前置节点waitStatus为SIGNAL，说明前置节点在等待获取锁，当前节点可以挂起
         if (ws == Node.SIGNAL)
-            /*
-             * This node has already set status asking a release
-             * to signal it, so it can safely park.
-             */
             return true;
         if (ws > 0) {
-            /*
-             * Predecessor was cancelled. Skip over predecessors and
-             * indicate retry.
-             */
             // 当前节点的前置节点waitStatus > 0，只可能为CANCELLED，所以直接删除前置节点
             do {
                 node.prev = pred = pred.prev;
@@ -239,11 +341,10 @@ public abstract class AbstractQueuedSynchronizer
             pred.next = node;
         } else {
             /*
-             * waitStatus must be 0 or PROPAGATE.  Indicate that we
-             * need a signal, but don't park yet.  Caller will need to
-             * retry to make sure it cannot acquire before parking.
+             * 这里会更改前置节点的waitStatus
+             * 当前置节点为0或其他非SIGNAL状态的负数时
+             * 既然当前节点已经压入，那前置节点就应该做好准备竞争锁，所以waitStatus置为SIGNAL
              */
-            // 前置节点为其他状态，既然当前节点已经压入，那前置节点就应该做好准备竞争锁，所以waitStatus置为SIGNAL
             pred.compareAndSetWaitStatus(ws, Node.SIGNAL);
         }
     
@@ -271,20 +372,51 @@ public abstract class AbstractQueuedSynchronizer
         return Thread.interrupted();
     }
 
-}
-```
+    /**
+     * 取消当前线程获取资源
+     */
+    private void cancelAcquire(Node node) {
+        if (node == null)
+            return;
 
-队列里只有一个线程在竞争锁，其他线程都被挂起。
-被挂起的线程会在一个线程使用完了共享资源，将要释放锁的时候被唤醒。
+        // 清除线程
+        node.thread = null;
 
-释放锁的方法：
-```java
-public abstract class AbstractQueuedSynchronizer
-    extends AbstractOwnableSynchronizer
-    implements java.io.Serializable {
+        // 清除所有cancelled前置节点
+        Node pred = node.prev;
+        while (pred.waitStatus > 0)
+            node.prev = pred = pred.prev;
+
+        // 获取到第一个非cancelled的前置节点，并获取他的下个节点，用于之后的CAS
+        Node predNext = pred.next;
+
+        // 当前节点状态设置为CANCELLED
+        node.waitStatus = Node.CANCELLED;
+
+        // 当前节点是尾结点，直接删除，并把前置节点设置为尾结点
+        if (node == tail && compareAndSetTail(node, pred)) {
+            pred.compareAndSetNext(predNext, null);
+        } else {
+            // 如果前置节点是其他等待获取资源的状态(<0)，则置为SIGNAL
+            int ws;
+            if (pred != head &&
+                ((ws = pred.waitStatus) == Node.SIGNAL ||
+                 (ws <= 0 && pred.compareAndSetWaitStatus(ws, Node.SIGNAL))) &&
+                pred.thread != null) {
+                Node next = node.next;
+                if (next != null && next.waitStatus <= 0)
+                    pred.compareAndSetNext(predNext, next);
+            } else {
+                // 否则直接唤醒，唤醒方法中会把已取消状态的节点删除
+                unparkSuccessor(node);
+            }
+
+            node.next = node; // help GC
+        }
+    }
 
     /**
-     * 给继承类去实现
+     * 尝试释放锁，给继承类去实现
      */
     protected boolean tryRelease(int arg) {
         throw new UnsupportedOperationException();
@@ -306,23 +438,17 @@ public abstract class AbstractQueuedSynchronizer
 
     /**
      * 唤醒下一个节点
-     * 如果下一个节点存在则唤醒下一个节点，如果不存在则从尾部开始唤醒第一个
      */
     private void unparkSuccessor(Node node) {
         /*
-         * If status is negative (i.e., possibly needing signal) try
-         * to clear in anticipation of signalling.  It is OK if this
-         * fails or if status is changed by waiting thread.
+         * 这里会更改节点的waitStatus，当前节点为负数的状态时，会被置为0，表示释放资源
          */
         int ws = node.waitStatus;
         if (ws < 0)
             node.compareAndSetWaitStatus(ws, 0);
 
         /*
-         * Thread to unpark is held in successor, which is normally
-         * just the next node.  But if cancelled or apparently null,
-         * traverse backwards from tail to find the actual
-         * non-cancelled successor.
+         * 如果下一个节点存在则唤醒下一个节点，如果不存在则从尾部开始，唤醒最前边的一个
          */
         Node s = node.next;
         if (s == null || s.waitStatus > 0) {
@@ -338,6 +464,8 @@ public abstract class AbstractQueuedSynchronizer
 
 }
 ```
+
+共享式(Share)：多个线程可以共享资源，如Semaphore、CountDownLatCh、CyclicBarrier、ReadWriteLock。
 
 高并发集合问题主要为第三代线程安全集合类，位于 java.util.concurrent.* 下，
 ConcurrentHashMap等，

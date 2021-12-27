@@ -397,7 +397,7 @@ public abstract class AbstractQueuedSynchronizer
         if (node == tail && compareAndSetTail(node, pred)) {
             pred.compareAndSetNext(predNext, null);
         } else {
-            // 如果前置节点是其他等待获取资源的状态(<0)，则置为SIGNAL
+            // 如果前置节点不是头节点并且是其他等待获取资源的状态(<=0)，则置为SIGNAL
             int ws;
             if (pred != head &&
                 ((ws = pred.waitStatus) == Node.SIGNAL ||
@@ -407,7 +407,7 @@ public abstract class AbstractQueuedSynchronizer
                 if (next != null && next.waitStatus <= 0)
                     pred.compareAndSetNext(predNext, next);
             } else {
-                // 否则直接唤醒，唤醒方法中会把已取消状态的节点删除
+                // 否则直接唤醒下一节点，唤醒方法中会把已取消状态的节点删除
                 unparkSuccessor(node);
             }
 
@@ -466,6 +466,159 @@ public abstract class AbstractQueuedSynchronizer
 ```
 
 共享式(Share)：多个线程可以共享资源，如Semaphore、CountDownLatCh、CyclicBarrier、ReadWriteLock。
+共享式与独占式的最主要区别在于同一时刻独占式只能有一个线程获取同步状态，而共享式在同一时刻可以有多个线程获取同步状态。
+例如读操作可以有多个线程同时进行，而写操作同一时刻只能有一个线程进行写操作，其他操作都会被阻塞。
+
+跟独占锁相比，共享锁的主要特征在于当一个在等待队列中的共享节点成功获取到锁以后（它获取到的是共享锁），
+既然是共享，那它必须要依次唤醒后面所有可以跟它一起共享当前锁资源的节点，毫无疑问，
+这些节点必须也是在等待共享锁（这是大前提，如果等待的是独占锁，那前面已经有一个共享节点获取锁了，它肯定是获取不到的）。
+当共享锁被释放的时候，无论是独占模式的节点还是共享模式的节点都会被唤醒。
+
+共享方式代码分析：
+```java
+public abstract class AbstractQueuedSynchronizer
+    extends AbstractOwnableSynchronizer
+    implements java.io.Serializable {
+    
+    /**
+     * 尝试以共享模式获取。 该方法应该查询对象的状态是否允许在共享模式下获取它，如果允许则获取它。
+     *
+     * 返回值为负数：不能获取，需要进入等待队列
+     * 返回值为0：可以获取成功，但是共享模式下之后的线程不会获取成功，也就是不需要把它后面等待的节点唤醒
+     * 返回值为正数：可以获取成功，共享模式下之后的线程也能获取成功，也就是说此时需要把后续节点唤醒让它们去尝试获取共享锁
+     */
+    protected int tryAcquireShared(int arg) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * 共享模式获取锁(修改标记位)，如果没有成功就进入队列等待，直到成功获取
+     * 修饰符：public final，不允许继承类Override
+     *
+     * 该方法不响应中断
+     */
+    public final void acquireShared(int arg) {
+        if (tryAcquireShared(arg) < 0)
+            doAcquireShared(arg);
+    }
+
+    /**
+     * 共享模式获取锁，不响应中断
+     */
+    private void doAcquireShared(int arg) {
+        // 添加一个共享节点到等待队列，方法跟独占模式一样
+        final Node node = addWaiter(Node.SHARED);
+        boolean interrupted = false;
+        try {
+            for (;;) {
+                // 如果当前节点是头结点的后面一个，那么将会不断的去尝试拿锁，直到拿锁成功
+                final Node p = node.predecessor();
+                if (p == head) {
+                    int r = tryAcquireShared(arg);
+                    // r>=0 表示获取锁成功，>0 需要唤醒后面的线程
+                    if (r >= 0) {
+                        setHeadAndPropagate(node, r);
+                        p.next = null; // help GC
+                        return;
+                    }
+                }
+                // 挂起线程逻辑，跟独占模式一样，不支持中断
+                if (shouldParkAfterFailedAcquire(p, node))
+                    interrupted |= parkAndCheckInterrupt();
+            }
+        } catch (Throwable t) {
+            cancelAcquire(node);
+            throw t;
+        } finally {
+            if (interrupted)
+                selfInterrupt();
+        }
+    }
+
+    /**
+     * 设置头结点并唤醒后面线程
+     * 保证唤醒的只有共享节点
+     */
+    private void setHeadAndPropagate(Node node, int propagate) {
+        Node h = head; // Record old head for check below
+        setHead(node);
+        /*
+         * 这里有两种情况需要执行唤醒操作：
+         * 1. propagate > 0 表示调用方指明了后继节点需要被唤醒
+         * 2. 头节点后面的节点需要被唤醒（waitStatus<0）
+         */
+        if (propagate > 0 || h == null || h.waitStatus < 0 ||
+            (h = head) == null || h.waitStatus < 0) {
+            Node s = node.next;
+            /*
+             * 当前节点没有后继节点或后继节点是共享型，则进行唤醒
+             * 这里可以理解为除非明确指明不需要唤醒（后继等待节点是独占类型），否则都要唤醒
+             */
+            if (s == null || s.isShared())
+                doReleaseShared();
+        }
+    }
+
+    /**
+     * 共享模式释放锁
+     * 接下来等待独占锁跟共享锁的线程都可以被唤醒进行尝试获取
+     */
+    private void doReleaseShared() {
+        /*
+         * 唤醒操作由头结点开始，注意这里的头节点已经是doAcquireShared方法中获取到锁的节点了
+         * 其实就是唤醒doAcquireShared方法中获取到锁的节点的后继节点
+         */
+        for (;;) {
+            Node h = head;
+            if (h != null && h != tail) {
+                int ws = h.waitStatus;
+                // 表示后继节点需要被唤醒
+                if (ws == Node.SIGNAL) {
+                    // 这里需要控制并发，因为入口有setHeadAndPropagate跟release两个，避免两次唤醒
+                    if (!h.compareAndSetWaitStatus(Node.SIGNAL, 0))
+                        continue;            // loop to recheck cases
+                    unparkSuccessor(h);
+                }
+                // 如果后继节点暂时不需要唤醒，则把当前节点状态设置为PROPAGATE确保以后可以传递下去
+                else if (ws == 0 &&
+                         !h.compareAndSetWaitStatus(0, Node.PROPAGATE))
+                    continue;                // loop on failed CAS
+            }
+            /*
+             * 如果头结点没有发生变化，表示设置完成，退出循环
+             * 如果头结点发生变化，比如说其他线程获取到了锁，为了使自己的唤醒动作可以传递，必须进行重试
+             */
+            if (h == head)                   // loop if head changed
+                break;
+        }
+    }
+
+    /**
+     * 尝试释放锁，给继承类去实现
+     */
+    protected boolean tryReleaseShared(int arg) {
+        throw new UnsupportedOperationException();
+    }
+    
+    /**
+     * 释放锁
+     * 假如尝试释放锁成功，下一步就去唤醒等待队列里的其他节点
+     */
+    public final boolean releaseShared(int arg) {
+        if (tryReleaseShared(arg)) {
+            // 见如上分析
+            doReleaseShared();
+            return true;
+        }
+        return false;
+    }
+
+    /*
+     * 跟独占模式一样，共享模式也提供了支持中断和支持超时的方法，这里不再赘述
+     */
+
+}
+```
 
 高并发集合问题主要为第三代线程安全集合类，位于 java.util.concurrent.* 下，
 ConcurrentHashMap等，

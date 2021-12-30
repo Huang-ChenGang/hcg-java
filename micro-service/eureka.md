@@ -493,8 +493,9 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
             for (Application app : apps.getRegisteredApplications()) {
                 for (InstanceInfo instance : app.getInstances()) {
                     try {
-                        // 是否可注册该实例
+                        // 是否可注册该实例 非AWS的全部可注册
                         if (isRegisterable(instance)) {
+                            // register方法在AbstractInstanceRegistry类里
                             register(instance, instance.getLeaseInfo().getDurationInSecs(), true);
                             count++;
                         }
@@ -505,6 +506,224 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
             }
         }
         return count;
+    }
+
+    public void openForTraffic(ApplicationInfoManager applicationInfoManager, int count) {
+        // 更新客户端发送续订的数量
+        this.expectedNumberOfClientsSendingRenews = count;
+        // 更新续订百分比最小临界值
+        updateRenewsPerMinThreshold();
+        logger.info("Got {} instances from neighboring DS node", count);
+        logger.info("Renew threshold is: {}", numberOfRenewsPerMinThreshold);
+        this.startupTime = System.currentTimeMillis();
+        if (count > 0) {
+            this.peerInstancesTransferEmptyOnStartup = false;
+        }
+
+        // 兼容AWS
+        DataCenterInfo.Name selfName = applicationInfoManager.getInfo().getDataCenterInfo().getName();
+        boolean isAws = Name.Amazon == selfName;
+        if (isAws && serverConfig.shouldPrimeAwsReplicaConnections()) {
+            logger.info("Priming AWS connections for all replicas..");
+            primeAwsReplicas(applicationInfoManager);
+        }
+        logger.info("Changing status to UP");
+        applicationInfoManager.setInstanceStatus(InstanceStatus.UP);
+
+        // 启动清除定时任务
+        super.postInit();
+    }
+
+    /**
+     * 可以看出来这个方法只是为了AWS用的，非AWS的全部可注册
+     */
+    public boolean isRegisterable(InstanceInfo instanceInfo) {
+        DataCenterInfo datacenterInfo = instanceInfo.getDataCenterInfo();
+        String serverRegion = clientConfig.getRegion();
+        if (AmazonInfo.class.isInstance(datacenterInfo)) {
+            AmazonInfo info = AmazonInfo.class.cast(instanceInfo.getDataCenterInfo());
+            String availabilityZone = info.get(MetaDataKey.availabilityZone);
+            // Can be null for dev environments in non-AWS data center
+            if (availabilityZone == null && US_EAST_1.equalsIgnoreCase(serverRegion)) {
+                return true;
+            } else if ((availabilityZone != null) && (availabilityZone.contains(serverRegion))) {
+                // If in the same region as server, then consider it registerable
+                return true;
+            }
+        }
+        return true; // Everything non-amazon is registrable.
+    }
+
+}
+```
+
+AbstractInstanceRegistry：
+```java
+/**
+ * 处理来自尤里卡客户端的所有注册请求
+ * 执行的主要操作是注册、更新、取消、到期和状态更改
+ */
+public abstract class AbstractInstanceRegistry implements InstanceRegistry {
+    // 注册表，可以看出注册表是通过ConcurrentHashMap实现的，key是应用的名称appName
+    private final ConcurrentHashMap<String, Map<String, Lease<InstanceInfo>>> registry
+                = new ConcurrentHashMap<String, Map<String, Lease<InstanceInfo>>>();
+
+    // 环形队列，在这里仅用做调试和统计
+    private final CircularQueue<Pair<Long, String>> recentRegisteredQueue;
+    private final CircularQueue<Pair<Long, String>> recentCanceledQueue;
+    private ConcurrentLinkedQueue<RecentlyChangedItem> recentlyChangedQueue = new ConcurrentLinkedQueue<RecentlyChangedItem>();
+
+    private final ReentrantReadWriteLock readWriteLock = new ReentrantReadWriteLock();
+    private final Lock read = readWriteLock.readLock();
+    private final Lock write = readWriteLock.writeLock();
+    protected final Object lock = new Object();
+
+    // 预期的客户端发送更新的数量
+    protected volatile int expectedNumberOfClientsSendingRenews;
+
+    /**
+     * 注册一个新实例
+     */
+    public void register(InstanceInfo registrant, int leaseDuration, boolean isReplication) {
+        // 读锁上锁
+        read.lock();
+        try {
+            // 从注册表中取出需要注册的应用的全部实例
+            Map<String, Lease<InstanceInfo>> gMap = registry.get(registrant.getAppName());
+            // 在eureka统计中，将注册的数量+1
+            REGISTER.increment(isReplication);
+            // 当前应用从来没有注册过
+            if (gMap == null) {
+                // 新建一个实例列表，这里可已看出注册表中应用所对应的实例列表也是通过ConcurrentHashMap实现的，key是实例ID
+                final ConcurrentHashMap<String, Lease<InstanceInfo>> gNewMap = new ConcurrentHashMap<String, Lease<InstanceInfo>>();
+                // 先调用putIfAbsent存一下，应该是为了防止多线程并发注册
+                gMap = registry.putIfAbsent(registrant.getAppName(), gNewMap);
+                // 当前应该没有被注册过，就把新建的实例列表赋值给gMap
+                if (gMap == null) {
+                    gMap = gNewMap;
+                }
+            }
+    
+            // 根据实例ID检查是否注册过
+            Lease<InstanceInfo> existingLease = gMap.get(registrant.getId());
+            // 当前实例ID已经注册过
+            if (existingLease != null && (existingLease.getHolder() != null)) {
+                Long existingLastDirtyTimestamp = existingLease.getHolder().getLastDirtyTimestamp();
+                Long registrationLastDirtyTimestamp = registrant.getLastDirtyTimestamp();
+                logger.debug("Existing lease found (existing={}, provided={}", existingLastDirtyTimestamp, registrationLastDirtyTimestamp);
+
+                // 将本地已注册的实例和将要注册的实例进行比较，保留最后使用时间更新的那一个
+                if (existingLastDirtyTimestamp > registrationLastDirtyTimestamp) {
+                    logger.warn("There is an existing lease and the existing lease's dirty timestamp {} is greater" +
+                            " than the one that is being registered {}", existingLastDirtyTimestamp, registrationLastDirtyTimestamp);
+                    logger.warn("Using the existing instanceInfo instead of the new instanceInfo as the registrant");
+                    registrant = existingLease.getHolder();
+                }
+            } else {
+                // 当前实例ID没有注册过，加锁更新
+                synchronized (lock) {
+                    if (this.expectedNumberOfClientsSendingRenews > 0) {
+                        // 更新客户端发送续订的数量
+                        this.expectedNumberOfClientsSendingRenews = this.expectedNumberOfClientsSendingRenews + 1;
+                        // 更新续订百分比最小临界值
+                        updateRenewsPerMinThreshold();
+                    }
+                }
+                logger.debug("No previous lease information found; it is new registration");
+            }
+
+            // 新建待注册实例，并更新实例启动时间
+            Lease<InstanceInfo> lease = new Lease<InstanceInfo>(registrant, leaseDuration);
+            if (existingLease != null) {
+                lease.setServiceUpTimestamp(existingLease.getServiceUpTimestamp());
+            }
+
+            /*
+             * 新实例注册进registry
+             * gMap是从registry中取出的对象引用，对象引用就是堆中对象的存储地址，
+             * 所以这里put进gMap是会实际影响到registry的，也就是保存进了registry
+             */
+            gMap.put(registrant.getId(), lease);
+
+            recentRegisteredQueue.add(new Pair<Long, String>(
+                    System.currentTimeMillis(),
+                    registrant.getAppName() + "(" + registrant.getId() + ")"));
+
+            // 更新覆盖状态，暂时没看懂什么用，先放一放
+            if (!InstanceStatus.UNKNOWN.equals(registrant.getOverriddenStatus())) {
+                logger.debug("Found overridden status {} for instance {}. Checking to see if needs to be add to the "
+                                + "overrides", registrant.getOverriddenStatus(), registrant.getId());
+                if (!overriddenInstanceStatusMap.containsKey(registrant.getId())) {
+                    logger.info("Not found overridden id {} and hence adding it", registrant.getId());
+                    overriddenInstanceStatusMap.put(registrant.getId(), registrant.getOverriddenStatus());
+                }
+            }
+            InstanceStatus overriddenStatusFromMap = overriddenInstanceStatusMap.get(registrant.getId());
+            if (overriddenStatusFromMap != null) {
+                logger.info("Storing overridden status {} from map", overriddenStatusFromMap);
+                registrant.setOverriddenStatus(overriddenStatusFromMap);
+            }
+
+            // Set the status based on the overridden status rules
+            InstanceStatus overriddenInstanceStatus = getOverriddenInstanceStatus(registrant, existingLease, isReplication);
+            registrant.setStatusWithoutDirty(overriddenInstanceStatus);
+
+            // 如果实例是启动状态，更新实例的启动时间
+            if (InstanceStatus.UP.equals(registrant.getStatus())) {
+                lease.serviceUp();
+            }
+
+            registrant.setActionType(ActionType.ADDED);
+            recentlyChangedQueue.add(new RecentlyChangedItem(lease));
+            registrant.setLastUpdatedTimestamp();
+
+            // 无效化当前应用的缓存 eureka在读取实际的注册表前设置了两层缓存，所以这里要把之前的缓存无效化
+            invalidateCache(registrant.getAppName(), registrant.getVIPAddress(), registrant.getSecureVipAddress());
+            logger.info("Registered instance {}/{} with status {} (replication={})",
+                    registrant.getAppName(), registrant.getId(), registrant.getStatus(), isReplication);
+        } finally {
+            // 最后释放读锁
+            read.unlock();
+        }
+    }
+
+    // 更新续订百分比最小临界值
+    protected void updateRenewsPerMinThreshold() {
+        this.numberOfRenewsPerMinThreshold = (int) (this.expectedNumberOfClientsSendingRenews
+                * (60.0 / serverConfig.getExpectedClientRenewalIntervalSeconds())
+                * serverConfig.getRenewalPercentThreshold());
+    }
+}
+```
+
+eureka监控的统计信息EurekaMonitors：
+```java
+/*
+ * 封装 Eureka 监控的所有统计信息的枚举
+ */
+public enum EurekaMonitors {
+    // 注册统计枚举
+    REGISTER("registerCounter", "Number of total registers seen since startup");
+
+    // 总注册数
+    @com.netflix.servo.annotations.Monitor(name = "count", type = DataSourceType.COUNTER)
+    private final AtomicLong counter = new AtomicLong();
+
+    // 当前eureka节点注册数
+    @com.netflix.servo.annotations.Monitor(name = "count-minus-replication", type = DataSourceType.COUNTER)
+    private final AtomicLong myZoneCounter = new AtomicLong();
+
+    /**
+     * isReplication表示是否是从其他eureka节点同步来的
+     */
+    public void increment(boolean isReplication) {
+        // 总注册数+1
+        counter.incrementAndGet();
+
+        // 如果不是从其他节点同步来的，则当前eureka节点注册数也要+1
+        if (!isReplication) {
+            myZoneCounter.incrementAndGet();
+        }
     }
 }
 ```

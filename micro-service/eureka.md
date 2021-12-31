@@ -920,3 +920,27 @@ public enum EurekaMonitors {
     }
 }
 ```
+
+eurekaServer启动总结：
+
+1. @EnableEurekaServer声明一个eureka服务器
+2. @EnableEurekaServer注解中引入了一个EurekaServerMarkerConfiguration，
+EurekaServerMarkerConfiguration主要作用是激活eureka服务器自动配置。
+3. eureka服务器自动配置(EurekaServerAutoConfiguration)引入了eureka服务器初始化配置，
+引入了eurekaServerConfig和eurekaClientConfig，
+声明了注册中心、eureka节点列表助手类、eureka服务器上下文、eureka服务器启动类，以及其他的一些配置和声明。
+4. eureka服务器上下文(DefaultEurekaServerContext)：
+每十分钟同步一次 eureka节点列表，eureka节点列表是从eureka.client.service-url.defaultZone配置中取得的。
+调用了注册表的init方法，该方法中初始化了eureka缓存。
+5. eureka服务器初始化配置(eurekaEurekaServerInitializerConfiguration)：实现SmartLifecycle接口，
+在spring上下文初始化之后通过eureka服务器启动类启动了eureka服务器。
+6. eureka服务器启动类(EurekaServerBootstrap)：从其他eureka节点同步注册表信息，
+具体执行方法在eureka注册表里。
+7. eureka注册表：主要是AbstractInstanceRegistry和PeerAwareInstanceRegistryImpl两个类实现。
+在eureka服务器启动时从其他eureka节点同步注册表，有新的实例注册时通知其他节点。
+eureka注册表实现方式：注册表是一个ConcurrentHashMap，其中key是每个应用的名字，value是保存应用实例的ConcurrentHashMap。
+应用实例的ConcurrentHashMap的key是实例ID，value是实例。
+8. eureka注册表缓存：eureka注册表提供了两层的缓存结构，当eureka客户端获取数据时，
+会先从一级缓存中获取；如果一级缓存中不存在，再从二级缓存中获取，二级缓存也不存在，这时候先将存储层的数据同步到缓存中，再从缓存中获取。
+一级缓存数据结构：ConcurrentHashMap，依赖定时任务每30秒从二级缓存中获取数据。
+二级缓存数据结构：Guava缓存，每180秒清除一次缓存，当服务下线、过期、注册、状态变更，都会来清除此缓存中的数据。

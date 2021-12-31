@@ -96,12 +96,11 @@ public class EurekaServerAutoConfiguration implements WebMvcConfigurer {
     /*
      * eureka服务器运行所需的配置信息
      * 包括弹性IP、自我保护机制、从eureka接待同步注册列表等一些机制相关的配置
-     * 细节先不看，先知道这里是eureka服务器运行所需的配置信息
      */
     @Autowired
     private EurekaServerConfig eurekaServerConfig;
 
-    // eureka 客户端向 Eureka 服务器注册实例所需的配置信息
+    // eureka客户端配置，默认实现类：DefaultEurekaClientConfig
     @Autowired
     private EurekaClientConfig eurekaClientConfig;
 
@@ -123,11 +122,11 @@ public class EurekaServerAutoConfiguration implements WebMvcConfigurer {
     }
 
     /**
-     * 声明一个注册中心，这个暂时先不看，我们先把代码走下去
-     * 粗略看了下，eureka的注册和同步应该都是在PeerAwareInstanceRegistry中进行的
+     * 声明一个注册中心
      * 可以看出返回的是InstanceRegistry，InstanceRegistry又继承自PeerAwareInstanceRegistryImpl
      * PeerAwareInstanceRegistryImpl实现了PeerAwareInstanceRegistry
-     * 所以注册中心基本的处理逻辑在InstanceRegistry和PeerAwareInstanceRegistryImpl
+     * PeerAwareInstanceRegistryImpl继承了AbstractInstanceRegistry
+     * 注册中心基本的处理逻辑在AbstractInstanceRegistry和PeerAwareInstanceRegistryImpl
      */
     @Bean
     public PeerAwareInstanceRegistry peerAwareInstanceRegistry(
@@ -187,6 +186,36 @@ public class EurekaServerAutoConfiguration implements WebMvcConfigurer {
         return new EurekaServerBootstrap(this.applicationInfoManager,
                 this.eurekaClientConfig, this.eurekaServerConfig, registry,
                 serverContext);
+    }
+
+}
+```
+
+eureka服务器上下文DefaultEurekaServerContext：
+```java
+@Singleton
+public class DefaultEurekaServerContext implements EurekaServerContext {
+
+    // @PostConstruct修饰的方法在依赖注入完成后执行
+    @PostConstruct
+    @Override
+    public void initialize() {
+        logger.info("Initializing ...");
+        
+        /*
+         * 这个方法会每隔十分钟(10 * 60 * 1000)同步一次eureka节点列表，即eureka集群
+         * 同步列表的时候，会为每隔PeerEurekaNode注入相应的targetUrl
+         * 会从eureka.client.service-url.defaultZone中获取eureka节点信息
+         */
+        peerEurekaNodes.start();
+
+        try {
+            // 调用注册表的init方法，其中初始化了eureka的缓存
+            registry.init(peerEurekaNodes);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        logger.info("Initialized");
     }
 
 }
@@ -436,9 +465,10 @@ public class EurekaServerBootstrap {
 
         // 从其他eureka节点同步注册表信息，具体执行方法在PeerAwareInstanceRegistryImpl类里
         int registryCount = this.registry.syncUp();
+        // 更改eureka配置和启动清除定时任务
         this.registry.openForTraffic(this.applicationInfoManager, registryCount);
 
-        // Register all monitoring statistics.
+        // 注册统计信息
         EurekaMonitors.registerAllStats();
     }
 }
@@ -464,6 +494,22 @@ public class EurekaServerBootstrap {
  */
 @Singleton
 public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry implements PeerAwareInstanceRegistry {
+
+    // 在DefaultEurekaServerContext的initialize方法中被调用
+    public void init(PeerEurekaNodes peerEurekaNodes) throws Exception {
+        this.numberOfReplicationsLastMin.start();
+        this.peerEurekaNodes = peerEurekaNodes;
+        // 初始化了eureka的缓存
+        initializedResponseCache();
+        scheduleRenewalThresholdUpdateTask();
+        initRemoteRegionRegistry();
+
+        try {
+            Monitors.registerObject(this);
+        } catch (Throwable e) {
+            logger.warn("Cannot register the JMX monitor for the InstanceRegistry :", e);
+        }
+    }
     
     // 从其他eureka节点同步注册表信息
     public int syncUp() {
@@ -508,6 +554,49 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
         return count;
     }
 
+    /**
+     * 注册实例到注册表，并将当前实例同步到其他节点
+     * 如果当前实例是从其他节点同步过来的，则不会通知其他节点
+     */
+    public void register(final InstanceInfo info, final boolean isReplication) {
+        int leaseDuration = Lease.DEFAULT_DURATION_IN_SECS;
+        if (info.getLeaseInfo() != null && info.getLeaseInfo().getDurationInSecs() > 0) {
+            leaseDuration = info.getLeaseInfo().getDurationInSecs();
+        }
+        super.register(info, leaseDuration, isReplication);
+        replicateToPeers(Action.Register, info.getAppName(), info.getId(), info, null, isReplication);
+    }
+
+    /**
+     * 将eureka操作同步到此节点外的其他eureka节点
+     * info和newStatus是可以传null的
+     */
+    private void replicateToPeers(Action action, String appName, String id,
+                                  InstanceInfo info,
+                                  InstanceStatus newStatus, boolean isReplication) {
+        Stopwatch tracer = action.getTimer().start();
+        try {
+            if (isReplication) {
+                numberOfReplicationsLastMin.increment();
+            }
+            if (peerEurekaNodes == Collections.EMPTY_LIST || isReplication) {
+                return;
+            }
+
+            for (final PeerEurekaNode node : peerEurekaNodes.getPeerEurekaNodes()) {
+                if (peerEurekaNodes.isThisMyUrl(node.getServiceUrl())) {
+                    continue;
+                }
+
+                // 通过eureka节点的targetUrl发送http请求进行注册处理
+                replicateInstanceActionsToPeers(action, appName, id, info, newStatus, node);
+            }
+        } finally {
+            tracer.stop();
+        }
+    }
+
+    // 更改eureka配置和启动清除定时任务
     public void openForTraffic(ApplicationInfoManager applicationInfoManager, int count) {
         // 更新客户端发送续订的数量
         this.expectedNumberOfClientsSendingRenews = count;
@@ -677,7 +766,10 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
             recentlyChangedQueue.add(new RecentlyChangedItem(lease));
             registrant.setLastUpdatedTimestamp();
 
-            // 无效化当前应用的缓存 eureka在读取实际的注册表前设置了两层缓存，所以这里要把之前的缓存无效化
+            /*
+             * 无效化当前应用的缓存
+             * eureka在读取实际的注册表前设置了两层缓存，所以这里要把之前的缓存无效化
+             */
             invalidateCache(registrant.getAppName(), registrant.getVIPAddress(), registrant.getSecureVipAddress());
             logger.info("Registered instance {}/{} with status {} (replication={})",
                     registrant.getAppName(), registrant.getId(), registrant.getStatus(), isReplication);
@@ -693,6 +785,107 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
                 * (60.0 / serverConfig.getExpectedClientRenewalIntervalSeconds())
                 * serverConfig.getRenewalPercentThreshold());
     }
+}
+```
+
+eureka缓存实现类ResponseCacheImpl：
+```java
+/*
+ * Eureka Server 为了提供响应效率，提供了两层的缓存结构，
+ * 将 Eureka Client 所需要的注册信息，直接存储在缓存结构中
+ * Eureka Client 获取全量或者增量的数据时，会先从一级缓存中获取；如果一级缓存中不存在，再从二级缓存中获取；
+ * 如果二级缓存也不存在，这时候先将存储层的数据同步到缓存中，再从缓存中获取。
+ * 通过 Eureka Server 的二层缓存机制，可以非常有效地提升 Eureka Server 的响应时间，
+ * 通过数据存储层和缓存层的数据切割，根据使用场景来提供不同的数据支持。
+ */
+public class ResponseCacheImpl implements ResponseCache {
+
+    /**
+     * readOnlyCacheMap，本质上是 ConcurrentHashMap，
+     * 依赖定时从 readWriteCacheMap 同步数据，默认时间为 30 秒
+     */
+    private final ConcurrentMap<Key, Value> readOnlyCacheMap = new ConcurrentHashMap<Key, Value>();
+
+    /**
+     * readWriteCacheMap，本质上是 Guava 缓存
+     * readWriteCacheMap 缓存过期时间默认为 180 秒，
+     * 当服务下线、过期、注册、状态变更，都会来清除此缓存中的数据。
+     */
+    private final LoadingCache<Key, Value> readWriteCacheMap;
+
+    ResponseCacheImpl(EurekaServerConfig serverConfig, ServerCodecs serverCodecs, AbstractInstanceRegistry registry) {
+        this.serverConfig = serverConfig;
+        this.serverCodecs = serverCodecs;
+        this.shouldUseReadOnlyResponseCache = serverConfig.shouldUseReadOnlyResponseCache();
+        this.registry = registry;
+
+        long responseCacheUpdateIntervalMs = serverConfig.getResponseCacheUpdateIntervalMs();
+
+        /*
+         * 初始化二级缓存，也就是读写缓存readWriteCacheMap
+         * 使用的是LoadingCache对象，它是guava中提供的用来实现内存缓存的一个api
+         */
+        this.readWriteCacheMap =
+                CacheBuilder.newBuilder()
+                        // 缓存池大小，默认值为1000
+                        .initialCapacity(serverConfig.getInitialCapacityOfResponseCache())
+                        // 过期时间，对象没有被写访问，则对象从内存中删除(在另外的线程里面不定期维护)，默认为180秒
+                        .expireAfterWrite(serverConfig.getResponseCacheAutoExpirationInSeconds(), TimeUnit.SECONDS)
+                        // 移除监听器,缓存项被移除时会触发
+                        .removalListener(new RemovalListener<Key, Value>() {
+                            @Override
+                            public void onRemoval(RemovalNotification<Key, Value> notification) {
+                                Key removedKey = notification.getKey();
+                                if (removedKey.hasRegions()) {
+                                    Key cloneWithNoRegions = removedKey.cloneWithoutRegions();
+                                    regionSpecificKeys.remove(cloneWithNoRegions, removedKey);
+                                }
+                            }
+                        })
+                        .build(new CacheLoader<Key, Value>() {
+                            /**
+                             * CacheLoader是用来实现缓存自动加载的功能，
+                             * 当触发readWriteCacheMap.get(key)方法时，就会回调CacheLoader.load方法，
+                             * 根据key去服务注册信息中去查找实例数据进行缓存
+                             */
+                            @Override
+                            public Value load(Key key) throws Exception {
+                                if (key.hasRegions()) {
+                                    Key cloneWithNoRegions = key.cloneWithoutRegions();
+                                    regionSpecificKeys.put(cloneWithNoRegions, key);
+                                }
+                                
+                                /*
+                                 * 此方法接受一个 Key 类型的参数，返回一个 Value 类型。 
+                                 * 其中 Key 中重要的字段有：
+                                 *      KeyType ，表示payload文本格式，有 JSON 和 XML 两种值
+                                 *      EntityType ，表示缓存的类型，有 Application , VIP , SVIP 三种值
+                                 *      entityName ，表示缓存的名称，可能是单个应用名，也可能是 ALL_APPS 或 ALL_APPS_DELTA
+                                 * Value 则有一个 String 类型的payload和一个 byte 数组，表示gzip压缩后的字节
+                                 */
+                                Value value = generatePayload(key);
+                                return value;
+                            }
+                        });
+    
+        /*
+         * 初始化定时任务
+         * 每30s从readWriteCacheMap更新有差异的数据同步到readOnlyCacheMap中
+         */
+        if (shouldUseReadOnlyResponseCache) {
+            timer.schedule(getCacheUpdateTask(),
+                    new Date(((System.currentTimeMillis() / responseCacheUpdateIntervalMs) * responseCacheUpdateIntervalMs)
+                            + responseCacheUpdateIntervalMs),
+                    responseCacheUpdateIntervalMs);
+        }
+
+        try {
+            Monitors.registerObject(this);
+        } catch (Throwable e) {
+            logger.warn("Cannot register the JMX monitor for the InstanceRegistry", e);
+        }
+    }
+    
 }
 ```
 

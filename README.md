@@ -20,7 +20,8 @@
 ### 微服务
 1. **事件驱动架构**
 2. **[服务无状态](micro-service/serverless.md)**
-3. **[服务注册与发现-eureka](micro-service/eureka.md)**
+3. **[服务发现机制](micro-service/discovery-mechanism.md)**
+3. **[eureka服务端](micro-service/eureka-server.md)**
 
 ### spring
 

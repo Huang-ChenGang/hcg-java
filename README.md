@@ -16,6 +16,7 @@
 ### JVM
 
 ### 分布式
+1. **[分布式事务](distributed/distributed-transaction.md)**
 
 ### 微服务
 1. **[进程间通信](micro-service/ipc.md)**

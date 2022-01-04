@@ -20,7 +20,7 @@
 
 ### 微服务
 1. **[进程间通信](micro-service/ipc.md)**
-2. **事件驱动架构**
+2. **[事件驱动架构](micro-service/event-driven.md)**
 3. **[服务无状态](micro-service/serverless.md)**
 4. **[服务发现机制](micro-service/discovery-mechanism.md)**
 5. **[eureka服务端](micro-service/eureka-server.md)**

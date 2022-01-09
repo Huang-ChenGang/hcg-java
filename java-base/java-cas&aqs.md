@@ -620,6 +620,66 @@ public abstract class AbstractQueuedSynchronizer
 }
 ```
 
+AQS方法说明：
+
+void acquire(int arg)：以独占模式获取锁，不响应中断。
+
+void acquireInterruptibly(int arg)：以独占模式获取，如果被中断则终止。
+
+void acquireShared​(int arg)：以共享模式获取锁，不响应中断。
+
+void acquireSharedInterruptibly​(int arg)：以共享模式获取锁，如果被中断则终止。
+
+protected boolean compareAndSetState​(int expect, int update)：如果当前状态值等于预期值，则自动将同步状态设置为给定的更新值。
+
+Collection<Thread> getExclusiveQueuedThreads()：返回等待以独占模式获取资源的线程集合。
+
+Thread getFirstQueuedThread()：返回队列中的第一个（等待时间最长的）线程，如果当前没有线程排队，则返回 null。
+
+Collection<Thread> getQueuedThreads()：返回等待获取资源的线程集合。
+
+int getQueueLength()：返回等待获取资源的线程数。
+
+Collection<Thread> getSharedQueuedThreads()：返回等待以共享模式获取资源的线程集合。
+
+protected int getState()：返回当前的同步状态。
+
+Collection<Thread> getWaitingThreads​(AbstractQueuedSynchronizer.ConditionObject condition)：返回以特定条件等待获取资源的线程集合。
+
+int getWaitQueueLength​(AbstractQueuedSynchronizer.ConditionObject condition)：返回以特定条件等待获取资源的线程数。
+
+boolean hasContended()：返回是否阻塞过其他线程。
+
+boolean hasQueuedPredecessors()：返回是否有其他线程等待的时间比当前线程等待的时间更长。
+
+boolean	hasQueuedThreads()：返回当前是否有其他线程在等待。
+
+boolean	hasWaiters​(AbstractQueuedSynchronizer.ConditionObject condition)：返回是否有其他线程以特定条件在等待。
+
+protected boolean isHeldExclusively()：返回是否以独占模式在进行。
+
+boolean	isQueued​(Thread thread)：查询指定线程是否在等待。
+
+boolean owns​(AbstractQueuedSynchronizer.ConditionObject condition)：查询给定的 ConditionObject 是否使用这个同步器作为它的锁。
+
+boolean	release​(int arg)：以独占模式释放锁。
+
+boolean	releaseShared​(int arg)：以共享模式释放锁。
+
+protected void setState​(int newState)：设置同步器状态。
+
+protected boolean tryAcquire​(int arg)：以独占模式尝试获取锁。
+
+boolean	tryAcquireNanos​(int arg, long nanosTimeout)：以独占模式尝试获取锁，如果被中断或超时，则终止。
+
+protected int tryAcquireShared​(int arg)：以共享模式尝试获取锁。
+
+boolean	tryAcquireSharedNanos​(int arg, long nanosTimeout)：以共享模式尝试获取锁，如果被中断或超时，则终止。
+
+protected boolean tryRelease​(int arg)：尝试以独占模式释放锁。
+
+protected boolean tryReleaseShared​(int arg)：尝试以共享模式释放锁。
+
 高并发集合问题主要为第三代线程安全集合类，位于 java.util.concurrent.* 下，
 ConcurrentHashMap等，
 底层是CAS和AQS。

@@ -176,6 +176,10 @@ public abstract class AbstractQueuedSynchronizer
             selfInterrupt();
     }
 
+    static void selfInterrupt() {
+        Thread.currentThread().interrupt();
+    }
+
     /**
      * 同acquire方法，但是会响应中断
      * 获取锁(修改标记位)，如果没有成功就进入队列等待，直到成功获取
@@ -650,7 +654,7 @@ int getWaitQueueLength​(AbstractQueuedSynchronizer.ConditionObject condition)�
 
 boolean hasContended()：返回是否阻塞过其他线程。
 
-boolean hasQueuedPredecessors()：返回是否有其他线程等待的时间比当前线程等待的时间更长。
+boolean hasQueuedPredecessors()：返回是否有其他线程等待的时间比当前线程等待的时间更长，也就是在等待队列里是否有其他线程在当前线程之前。
 
 boolean	hasQueuedThreads()：返回当前是否有其他线程在等待。
 

@@ -3,10 +3,11 @@
 ### java基础
 1. **[面向对象特征](java-base/object-oriented-features.md)**
 2. **[ArrayList和LinkedList区别](java-base/arrayList-linkedList.md)**
-3. **[线程](java-base/thread.md)**
-4. **[锁机制、CAS、AQS](java-base/cas&aqs.md)**
-5. **[可重入锁-ReentrantLock](java-base/reentrantLock.md)**
-6. **[Java8新特性--Lambda学习！](java-base/java8-new-features.md)**
+3. **[为什么使用静态内部类](java-base/static-inner-class.md)**
+4. **[线程](java-base/thread.md)**
+5. **[锁机制、CAS、AQS](java-base/cas&aqs.md)**
+6. **[可重入锁-ReentrantLock](java-base/reentrantLock.md)**
+7. **[Java8新特性--Lambda学习！](java-base/java8-new-features.md)**
 
 ### redis
 

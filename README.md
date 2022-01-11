@@ -6,8 +6,9 @@
 3. **[为什么使用静态内部类](java-base/static-inner-class.md)**
 4. **[线程](java-base/thread.md)**
 5. **[锁机制、CAS、AQS](java-base/cas&aqs.md)**
-6. **[可重入锁-ReentrantLock](java-base/reentrantLock.md)**
-7. **[Java8新特性--Lambda学习！](java-base/java8-new-features.md)**
+6. **[JUC同步器之可重入锁-ReentrantLock](java-base/reentrantLock.md)**
+7. **[JUC同步器之倒计时器-CountDownLatch](java-base/countDownLatch.md)**
+8. **[Java8新特性--Lambda学习！](java-base/java8-new-features.md)**
 
 ### redis
 

@@ -116,7 +116,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
         protected final boolean tryRelease(int releases) {
             // 获取剩余拥有锁的线程数
             int c = getState() - releases;
-            // 不允许是否其他线程的锁
+            // 不允许释放其他线程的锁
             if (Thread.currentThread() != getExclusiveOwnerThread())
                 throw new IllegalMonitorStateException();
             boolean free = false;

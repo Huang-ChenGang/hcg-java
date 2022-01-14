@@ -1,6 +1,6 @@
 ## AQS之条件队列
 
-在[锁机制、CAS、AQS](/java-base/cas&aqs.md)中分析了AQS的独占模式和共享模式，他们都是在AQS的同步队列里。
+在[锁机制、CAS、AQS](/concurrent/cas&aqs.md)中分析了AQS的独占模式和共享模式，他们都是在AQS的同步队列里。
 AQS中还有一个等待队列：Condition。
 
 ### AQS Condition 用法：

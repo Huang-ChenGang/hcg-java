@@ -11,6 +11,7 @@
 
 1. **[键值数据库](redis/kvdb.md)**
 2. **[redis数据结构](redis/data-structure.md)**
+2. **[单线程IO模型](redis/io-model.md)**
 
 ### mysql
 

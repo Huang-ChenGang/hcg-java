@@ -30,6 +30,7 @@
 另一方面，就是 Redis 采用了多路复用机制，使其在网络 IO 操作中能并发处理大量的客户端请求，实现高吞吐率。
 
 先熟悉一下Socket通信基本流程：
+
 ![Socket](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/2b0aca7fa9d6400c87b3afb3603c29c8~tplv-k3u1fbpfcp-watermark.awebp)
 
 服务器端：

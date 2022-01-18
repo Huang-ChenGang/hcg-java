@@ -10,6 +10,7 @@
 ### redis
 
 1. **[键值数据库](redis/kvdb.md)**
+2. **[redis数据结构](redis/data-structure.md)**
 
 ### mysql
 

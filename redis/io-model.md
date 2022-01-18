@@ -26,4 +26,4 @@
 
 ### redis单线程为什么这么快
 
-[Socket](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/2b0aca7fa9d6400c87b3afb3603c29c8~tplv-k3u1fbpfcp-watermark.awebp)
+![Socket](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/2b0aca7fa9d6400c87b3afb3603c29c8~tplv-k3u1fbpfcp-watermark.awebp)

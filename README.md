@@ -13,6 +13,7 @@
 2. **[redis数据结构](redis/data-structure.md)**
 3. **[单线程IO模型](redis/io-model.md)**
 4. **[AOF日志持久化](redis/aof.md)**
+5. **[RDB快照持久化](redis/rdb.md)**
 
 ### mysql
 

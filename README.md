@@ -14,6 +14,7 @@
 3. **[单线程IO模型](redis/io-model.md)**
 4. **[AOF日志持久化](redis/aof.md)**
 5. **[RDB快照持久化](redis/rdb.md)**
+6. **[主从复制](redis/replica.md)**
 
 ### mysql
 

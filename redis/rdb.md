@@ -87,7 +87,7 @@ Redis 4.0 中提出了一个混合使用 AOF 日志和内存快照的方法。
 ### 混合持久化配置
 
 ```gitignore
-# RDB 配置，每隔900s，有超过1个key发生变化，产生就产生一个dump.rdb文件
+# RDB 配置，每隔900s，有超过1个key发生变化，产生就产生一个dump.rdb文件，后台使用的是 bgsave 命令
 save 900 1
 
 # 打开 AOF

@@ -15,6 +15,7 @@
 4. **[AOF日志持久化](redis/aof.md)**
 5. **[RDB快照持久化](redis/rdb.md)**
 6. **[主从复制](redis/replica.md)**
+7. **[哨兵机制](redis/sentinel.md)**
 
 ### mysql
 

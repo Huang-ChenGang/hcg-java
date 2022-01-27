@@ -210,7 +210,7 @@ switch-master <master name> <oldip> <oldport> <newip> <newport>
 需要注意的是，如果哨兵集群只有 2 个实例，此时，一个哨兵要想成为 Leader，必须获得 2 票，而不是 1 票。
 所以，如果有个哨兵挂掉了，那么，此时的集群是无法进行主从库切换的。因此，通常我们至少会配置 3 个哨兵实例。这一点很重要。
 
-要保证所有哨兵实例的配置是一致的，尤其是主观下线的判断值 down-after-milliseconds。
+**要保证所有哨兵实例的配置是一致的，尤其是主观下线的判断值 down-after-milliseconds。**
 
 ### 主从切换过程中如何处理客户端请求
 

@@ -298,7 +298,7 @@ sentinel parallel-syncs mymaster 1
 #2. 当一个slave从一个错误的master那里同步数据开始计算时间。直到slave被纠正为向正确的master那里同步数据时。
 #3. 当想要取消一个正在进行的failover所需要的时间。  
 #4. 当进行failover时，配置所有slaves指向新的master所需的最大时间。
-#   不过，即使过了这个超时，slaves依然会被正确配置为指向master，但是就不按parallel-syncs所配置的规则来了
+#   不过，即使过了这个超时，slaves依然会被正确配置为指向master，但是就不按 parallel-syncs 所配置的规则来了
 # 默认三分钟
 # sentinel failover-timeout <master-name> <milliseconds>
 sentinel failover-timeout mymaster 180000
@@ -345,7 +345,7 @@ spring:
     timeout: 3000      # 连接超时时间（毫秒）
     ###################以下为redis哨兵增加的配置###########################
     sentinel:
-      nodes: 192.168.31.6:26379
+      nodes: 192.168.31.6:26379 # 多个用逗号分隔
       master: mymaster
     lettuce:            # Redis的Java驱动包,使用lettuce连接池
       pool:
@@ -400,5 +400,5 @@ spring:
 
 4. 调大 down-after-milliseconds 值，对减少误判是不是也有好处？
 
-是有好处的，适当调大down-after-milliseconds值，当哨兵与主库之间网络存在短时波动时，可以降低误判的概率。
-但是调大down-after-milliseconds值也意味着主从切换的时间会变长，对业务的影响时间越久，需要根据实际场景进行权衡，设置合理的阈值。
+是有好处的，适当调大 down-after-milliseconds 值，当哨兵与主库之间网络存在短时波动时，可以降低误判的概率。
+但是调大 down-after-milliseconds 值也意味着主从切换的时间会变长，对业务的影响时间越久，需要根据实际场景进行权衡，设置合理的阈值。

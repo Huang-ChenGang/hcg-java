@@ -118,6 +118,115 @@ ASK 命令表示两层含义：
 
 ### Redis Cluster 实操
 
+Redis Cluster 的配置信息以 redis.conf 为基础，下面是一个最小的基于 redis.conf 所要更改的 Redis Cluster 配置：
+```gitignore
+# 监听端口为 7000
+port 7000
+# 启用 Redis Cluster 支持
+cluster-enabled yes
+# 该文件列出了集群中的其他节点，它们的状态、持久变量等内容。由于某些消息接收，此文件通常会被重写并刷新到磁盘上。
+# 保存集群中其他节点信息的文件，默认为 nodes.conf ，需要为每个节点设置单独的文件名。
+# 该文件无需手动配置，Redis Cluster 自动维护
+cluster-config-file nodes.conf
+# 节点互连超时时间，毫秒为单位。如果超时，则认为此节点不可用，将由其从节点进行故障转移，也就是由其从节点成为主节点。
+# 这个参数控制 Redis Cluster 中的其他重要内容。
+# 如果主节点超时，则主节点对查询服务也不再响应。
+cluster-node-timeout 5000
+# 开启 AOF 持久化
+appendonly yes
+```
+
+Redis Cluster 至少需要三个主节点，建议建立三主三从的 Cluster 集群。
+首先创建一个新目录，然后以每个节点的端口号命名创建相应的文件夹：
+```gitignore
+# 创建 Cluster 集群总目录
+mkdir cluster-test
+# 创建响应子目录
+cd cluster-test
+mkdir 7000 7001 7002 7003 7004 7005
+```
+
+将 redis.conf 拷贝到每个子目录，并把上边提到的最小配置进行更改。
+
+首次启动 Cluster 实例时会输出以下日志：
+```gitignore
+[82462] 26 Nov 11:56:55.329 * No cluster configuration found, I'm 97a3a64667477371c4479320d683e4c8db5858b1
+```
+
+最后一串字符串是每个实例对应的 ID，实例 ID 永远不会变。Cluster 实例以这个 ID 来记住其他节点。
+因为 IP 和端口可能会变，但是 ID 永远不会变。
+
+现在已经拥有了一些 Cluster 实例，接下来要使用一些脚本使它们成为集群。
+如果使用的是 Redis 5 或者以上版本，使用 Redis 的命令行工具 redis-cli 可以很方便的构建。
+如果使用的是 Redis 3 或 4，就要使用 redis-trib.rb 工具进行构建。
+
+这里以 Redis 5 以上版本为例。
+
+创建 Cluster 集群：
+```gitignore
+# 创建一个三主三从的集群，--cluster-replicas 1 表示为每个主节点配置一个从节点
+redis-cli --cluster create 127.0.0.1:7000 127.0.0.1:7001 127.0.0.1:7002 127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005 --cluster-replicas 1
+```
+
+输入这行命令后 Redis 会输出确认配置的信息，输入 yes，就可以完成配置。配置完成后会出现以下日志：
+```gitignore
+# 所有 16384 个哈希槽已经分配完毕
+[OK] All 16384 slots covered
+```
+
+以下是使用 redis-cli 测试 Cluster 集群的案例：
+```gitignore
+$ redis-cli -c -p 7000
+redis 127.0.0.1:7000> set foo bar
+-> Redirected to slot [12182] located at 127.0.0.1:7002
+OK
+redis 127.0.0.1:7002> set hello world
+-> Redirected to slot [866] located at 127.0.0.1:7000
+OK
+redis 127.0.0.1:7000> get foo
+-> Redirected to slot [12182] located at 127.0.0.1:7002
+"bar"
+redis 127.0.0.1:7002> get hello
+-> Redirected to slot [866] located at 127.0.0.1:7000
+"world"
+```
+
+### Redis Cluster 配置说明
+
+在 redis.conf 中关于 Cluster 的配置说明：
+```gitignore
+# 是否开启 cluster，yes 表示开启，no 表示普通的 redis 实例
+cluster-enabled yes
+# 该文件列出了集群中的其他节点，它们的状态、持久变量等内容。由于某些消息接收，此文件通常会被重写并刷新到磁盘上。
+# 保存集群中其他节点信息的文件，默认为 nodes.conf ，需要为每个节点设置单独的文件名。
+# 该文件无需手动配置，Redis Cluster 自动维护
+cluster-config-file nodes.conf
+# 节点互连超时时间，毫秒为单位。如果超时，则认为此节点不可用，将由其从节点进行故障转移，也就是由其从节点成为主节点。
+# 这个参数控制 Redis Cluster 中的其他重要内容。
+# 如果主节点超时，则主节点对查询服务也不再响应。
+cluster-node-timeout 5000
+# 当前节点是从节点且在故障转移时使用
+# 如果设置为零，则副本将始终认为自己有效，因此将始终尝试对主节点进行故障转移，无论主节点和副本节点之间断开连接有多久。
+# 如果设置为正数，Redis 会计算当前从节点是否可以进行故障转移。计算公式为：(cluster-node-timeout 配置的毫秒数 * cluster-slave-validity-factor)
+# 例如 cluster-node-timeout 配置为 5000，cluster-slave-validity-factor 配置为 10，如果当前从节点和主节点断开时间超过 50 秒，则不可用于故障转移。
+# 请注意，如果没有能够对主节点进行故障转移的从节点，则任何非零值都可能导致当前 Redis Cluster 示例不可用。
+# 在这种情况下，只有当原始主节点重新加入集群时，集群才会恢复可用。
+cluster-slave-validity-factor 10
+# 从节点自动迁移时使用
+# 当一个主节点有多个从节点，而另外一个主节点没有从节点时，Cluster 会自动进行从节点迁移。
+# 这个配置就是用来设置当一个主节点最少有多少个从节点时，其余的从节点可以迁移到别的主节点。
+cluster-migration-barrier 1
+# 设置为 yes 表示有一个主节点不可用且没有对应的从节点进行故障转移时，则整个集群不可用。
+# 设置为 no 表示有一个主节点不可用且没有对应的从节点进行故障转移时，整个集群仍然可用，此时由其他主节点提供服务，当然下线主节点对应的哈希槽是不可用的
+# 默认为 yes，建议设置为 no
+cluster-require-full-coverage yes
+# 默认是no，当集群认为有节点出现故障时，该故障可能是因为网络分区导致该节点与集群隔离开，或者该节点无法得到集群大多数节点的认同时，
+# 此时该故障节点将会拒绝任何读写请求，这样的好处是将阻止客户端从该节点读取到不一致的数据。
+# 该参数也可以被配置为yes，即使该节点故障也允许读操作，这在应用要求优先进行读取操作但是可以阻止不一致性写入的情况下比较有用，
+# 当Redis集群仅有少量切片情况下且没有从节点执行故障转移时可以考虑使用。
+cluster-allow-reads-when-down no
+```
+
 ### 总结
 
 Redis使用集群方案就是为了解决单个节点数据量大、写入量大产生的性能瓶颈的问题。

@@ -18,6 +18,8 @@
 7. **[哨兵机制](redis/sentinel.md)**
 8. **[切片集群](redis/cluster.md)**
 
+9. **[String为什么不好用了](redis/why-string-not-working.md)**
+
 ### mysql
 
 ### 多线程高并发

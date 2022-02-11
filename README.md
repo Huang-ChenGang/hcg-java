@@ -17,8 +17,8 @@
 6. **[主从复制](redis/replica.md)**
 7. **[哨兵机制](redis/sentinel.md)**
 8. **[切片集群](redis/cluster.md)**
-
 9. **[String为什么不好用了](redis/why-string-not-working.md)**
+10. **[亿级数据集合统计](redis/count-one-hundred-million-key.md)**
 
 ### mysql
 

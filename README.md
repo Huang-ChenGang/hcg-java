@@ -20,6 +20,7 @@
 9. **[String为什么不好用了](redis/why-string-not-working.md)**
 10. **[亿级数据集合统计](redis/count-one-hundred-million-key.md)**
 11. **[GEO](redis/geo.md)**
+12. **[时间序列数据](redis/time-data.md)**
 
 ### mysql
 

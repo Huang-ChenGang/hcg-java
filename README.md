@@ -19,6 +19,7 @@
 8. **[切片集群](redis/cluster.md)**
 9. **[String为什么不好用了](redis/why-string-not-working.md)**
 10. **[亿级数据集合统计](redis/count-one-hundred-million-key.md)**
+11. **[GEO](redis/geo.md)**
 
 ### mysql
 

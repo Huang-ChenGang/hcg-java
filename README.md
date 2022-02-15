@@ -21,6 +21,7 @@
 10. **[亿级数据集合统计](redis/count-one-hundred-million-key.md)**
 11. **[GEO](redis/geo.md)**
 12. **[时间序列数据](redis/time-data.md)**
+13. **[消息队列](redis/mq.md)**
 
 ### mysql
 

@@ -22,7 +22,7 @@
 11. **[GEO](redis/geo.md)**
 12. **[时间序列数据](redis/time-data.md)**
 13. **[消息队列](redis/mq.md)**
-14. **[消息队列](redis/asynchronously-resolve-blocking.md)**
+14. **[异步机制解决单线程阻塞](redis/asynchronously-resolve-blocking.md)**
 
 ### mysql
 

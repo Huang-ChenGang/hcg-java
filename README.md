@@ -23,6 +23,7 @@
 12. **[时间序列数据](redis/time-data.md)**
 13. **[消息队列](redis/mq.md)**
 14. **[异步机制解决单线程阻塞](redis/asynchronously-resolve-blocking.md)**
+15. **[CPU对Redis性能的影响](redis/cpu&redis.md)**
 
 ### mysql
 

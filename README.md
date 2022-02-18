@@ -50,8 +50,11 @@
 3. **[服务无状态](micro-service/serverless.md)**
 4. **[服务发现机制](micro-service/discovery-mechanism.md)**
 5. **[eureka服务端](micro-service/eureka-server.md)**
+6. **[eureka客户端](micro-service/eureka-client.md)**
 
 ### spring
+
+1. **[SpringBoot自动装配](spring/springBoot-autoConfiguration.md)**
 
 ### 计算机网络
 

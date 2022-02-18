@@ -647,7 +647,7 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
 AbstractInstanceRegistry：
 ```java
 /**
- * 处理来自尤里卡客户端的所有注册请求
+ * 处理来自 Eureka 客户端的所有注册请求
  * 执行的主要操作是注册、更新、取消、到期和状态更改
  */
 public abstract class AbstractInstanceRegistry implements InstanceRegistry {

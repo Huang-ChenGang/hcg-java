@@ -3,6 +3,9 @@
 Ribbon的核心作用就是进行请求的负载均衡。客户端集成Ribbon这个组件，Ribbon中会针对已经配置的服务提供者地址列表进行负载均衡的计算，
 得到一个目标地址之后，再发起请求。
 
+Ribbon 的原理主要是靠拦截器 LoadBalancerInterceptor 拦截住有 @LoadBalancer 注解的 RestTemplate，将服务名转化为具体的 IP 地址。
+由 ILoadBalancer 和 IRule 实现负载均衡机制。也可以自定义负载均衡机制。
+
 ### @Qualifier 注解的作用
 
 @LoadBalancer 注解解析过程之前，先了解下 @Qualifier 注解的作用。

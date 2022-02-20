@@ -51,6 +51,7 @@
 4. **[服务发现机制](micro-service/discovery-mechanism.md)**
 5. **[eureka服务端](micro-service/eureka-server.md)**
 6. **[eureka客户端](micro-service/eureka-client.md)**
+7. **[ribbon负载均衡](micro-service/ribbon.md)**
 
 ### spring
 

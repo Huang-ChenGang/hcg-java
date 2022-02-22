@@ -6,6 +6,13 @@ Ribbon的核心作用就是进行请求的负载均衡。客户端集成Ribbon�
 Ribbon 的原理主要是靠拦截器 LoadBalancerInterceptor 拦截住有 @LoadBalancer 注解的 RestTemplate，将服务名转化为具体的 IP 地址。
 由 ILoadBalancer 和 IRule 实现负载均衡机制。也可以自定义负载均衡机制。
 
+可以在 yaml 配置文件中指定负载均衡策略（可以在 spring 官网查询的到）。
+配置 key 为 "要访问的服务名.ribbon.NFLoadBalancerRuleClassName"，value 是负载均衡类的完整包路径名。
+例：
+```properties
+PRODUCT.ribbon.NFLoadBalancerRuleClassName=com.netflix.loadbalancer.RandomRule
+```
+
 ### @Qualifier 注解的作用
 
 @LoadBalancer 注解解析过程之前，先了解下 @Qualifier 注解的作用。

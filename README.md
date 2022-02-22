@@ -52,6 +52,7 @@
 5. **[eureka服务端](micro-service/eureka-server.md)**
 6. **[eureka客户端](micro-service/eureka-client.md)**
 7. **[ribbon负载均衡](micro-service/ribbon.md)**
+8. **[熔断降级](micro-service/hystrix.md)**
 
 ### spring
 

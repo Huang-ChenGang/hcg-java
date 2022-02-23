@@ -6,6 +6,7 @@
 2. **[ArrayList和LinkedList区别](java-base/arrayList-linkedList.md)**
 3. **[为什么使用静态内部类](java-base/static-inner-class.md)**
 4. **[Java8新特性--Lambda学习！](java-base/java8-new-features.md)**
+5. **[HashMap](java-base/hashmap.md)**
 
 ### redis
 

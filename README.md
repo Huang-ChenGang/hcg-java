@@ -37,6 +37,7 @@
 5. **[JUC同步器之信号量-Semaphore](concurrent/semaphore.md)**
 6. **[JUC同步器之倒计时器-CountDownLatch](concurrent/countDownLatch.md)**
 7. **[JUC同步器之循环栅栏-CyclicBarrier](concurrent/cyclicBarrier.md)**
+7. **[ConcurrentHashMap](concurrent/concurrentHashMap.md)**
 
 ### JVM
 
